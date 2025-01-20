@@ -1,0 +1,5 @@
+grafana_url: "https://grafana.example.com/api"
+grafana_api_token: "Bearer <APITOKEN>"
+repo_url: "your_repo"
+repo_local_path: "/tmp/backup_repo"
+branch_name: "env"
