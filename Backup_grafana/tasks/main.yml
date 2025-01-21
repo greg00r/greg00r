@@ -1,0 +1,92 @@
+---
+- name: Grafana Backup Playbook
+  hosts: localhost
+  gather_facts: no
+  vars:
+    grafana_host: "URL"
+    api_token: "TOKEN"
+    backup_base_dir: "{{ playbook_dir }}/Grafana_backup"
+    date: "{{ lookup('pipe', 'date +%d%m%y%H%M%S') }}"
+    env: "ENV"
+    headers:
+      Authorization: "Bearer {{ api_token }}"
+      Content-Type: "application/json"
+
+    endpoints:
+      alerts: "/api/v1/provisioning/alert-rules"
+      alert_exports: "/api/v1/provisioning/alert-rules/export"
+      contact_points: "/api/v1/provisioning/contact-points"
+      contact_points_export: "/api/v1/provisioning/contact-points/export"
+      notification_policies: "/api/v1/provisioning/policies"
+      notification_policies_export: "/api/v1/provisioning/policies/export"
+      mute_timings: "/api/v1/provisioning/mute-timings"
+      mute_timings_export: "/api/v1/provisioning/mute-timings/export"
+      templates: "/api/v1/provisioning/templates"
+      dashboards: "/api/search?query="
+      datasources: "/api/datasources"
+
+  tasks:
+    - name: Create backup directories
+      ansible.builtin.file:
+        path: "{{ backup_base_dir }}/{{ env }}_{{ date }}"
+        state: directory
+        recurse: yes
+
+    - name: Define backup structure
+      set_fact:
+        backup_dirs:
+          summary: "{{ backup_base_dir }}/{{ env }}_{{ date }}/Summary"
+          alerts: "{{ backup_base_dir }}/{{ env }}_{{ date }}/grafana_alerts"
+          dashboards: "{{ backup_base_dir }}/{{ env }}_{{ date }}/grafana_dashboards"
+          datasources: "{{ backup_base_dir }}/{{ env }}_{{ date }}/grafana_datasource"
+          contact_points: "{{ backup_base_dir }}/{{ env }}_{{ date }}/grafana_contactPoints"
+          notification_policies: "{{ backup_base_dir }}/{{ env }}_{{ date }}/grafana_notificationPolicyTree"
+          mute_timings: "{{ backup_base_dir }}/{{ env }}_{{ date }}/grafana_muteTimings"
+          templates: "{{ backup_base_dir }}/{{ env }}_{{ date }}/grafana_templates"
+
+    - name: Create subdirectories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+      loop: "{{ backup_dirs.values() }}"
+
+    - name: Fetch alerts
+      ansible.builtin.uri:
+        url: "{{ grafana_host }}{{ endpoints.alerts }}"
+        method: GET
+        headers: "{{ headers }}"
+        return_content: yes
+      register: alerts_response
+
+    - name: Save alerts to file
+      ansible.builtin.copy:
+        content: "{{ alerts_response.content | from_json | to_nice_json }}"
+        dest: "{{ backup_dirs.alerts }}/alert-rules.json"
+
+    - name: Fetch and save contact points
+      ansible.builtin.uri:
+        url: "{{ grafana_host }}{{ endpoints.contact_points_export }}"
+        method: GET
+        headers: "{{ headers }}"
+        return_content: yes
+      register: contact_points_response
+
+    - name: Save contact points to YAML file
+      ansible.builtin.copy:
+        content: "{{ contact_points_response.content }}"
+        dest: "{{ backup_dirs.contact_points }}/contactPointsExport.yaml"
+
+    - name: Fetch and save dashboards
+      ansible.builtin.uri:
+        url: "{{ grafana_host }}{{ endpoints.dashboards }}"
+        method: GET
+        headers: "{{ headers }}"
+        return_content: yes
+      register: dashboards_response
+
+    - name: Process dashboards
+      ansible.builtin.debug:
+        msg: "Dashboard UID: {{ item.uid }} - Title: {{ item.title }}"
+      loop: "{{ dashboards_response.json }}"
+      loop_control:
+        label: "{{ item.title }}"
