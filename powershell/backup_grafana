@@ -1,0 +1,129 @@
+# Funkcja do tworzenia folderów
+function Create-Folder {
+    param (
+        [string[]]$Paths
+    )
+    foreach ($path in $Paths) {
+        if (-not (Test-Path -Path $path)) {
+            try {
+                New-Item -ItemType Directory -Path $path -Force | Out-Null
+                Write-Host "Directory created: $path" -ForegroundColor Green
+            } catch {
+                Write-Host "Error creating directory: $path" -ForegroundColor Red
+            }
+        } else {
+            Write-Host "Directory already exists: $path" -ForegroundColor Yellow
+        }
+    }
+}
+
+# Funkcja do sanitizacji nazw plików
+function Sanitize-FileName {
+    param (
+        [string]$Name
+    )
+    $forbiddenChars = @('\', '/', ':', '*', '?', '"', '<', '>', '|')
+    foreach ($char in $forbiddenChars) {
+        $Name = $Name -replace [regex]::Escape($char), '-'
+    }
+    return $Name.Trim()
+}
+
+# Funkcja zapisu danych do pliku
+function Save-Data {
+    param (
+        [string]$Endpoint,
+        [string]$FilePath,
+        [bool]$IsJson = $true
+    )
+    try {
+        $Response = Invoke-RestMethod -Uri $Endpoint -Headers $Headers -Method Get
+        if ($IsJson) {
+            $Response | ConvertTo-Json -Depth 100 | Out-File -FilePath $FilePath -Encoding UTF8
+        } else {
+            $Response | Out-File -FilePath $FilePath -Encoding UTF8
+        }
+        Write-Host "Data saved to $FilePath" -ForegroundColor Green
+    } catch {
+        Write-Host "Error fetching data from $Endpoint" -ForegroundColor Red
+        Write-Host $_.Exception.Message -ForegroundColor Red
+    }
+}
+
+# Zmienne globalne
+$date = Get-Date -Format "ddMMyyHHmmss"
+$env = "ENV"
+$grafanaHost = "URL"
+$apiToken = "TOKEN"
+
+$mainDir = $PSScriptRoot
+$backupDir = "$mainDir\Grafana_backup\${env}_$date"
+$summaryDir = "$backupDir\Summary"
+$alertDir = "$backupDir\grafana_alerts"
+$alertDirAll = "$alertDir\all"
+$dashboardDir = "$backupDir\grafana_dashboards"
+$datasourceDir = "$backupDir\grafana_datasource"
+$contactPointsDirAll = "$backupDir\grafana_contactPoints\All"
+$notificationPolicyTreeDir = "$backupDir\grafana_notificationPolicyTree"
+$muteTimingsDirAll = "$backupDir\grafana_muteTimings\All"
+$templatesDir = "$backupDir\grafana_templates"
+
+# Nagłówki API
+$Headers = @{
+    "Authorization" = "Bearer $apiToken"
+    "Content-Type"  = "application/json"
+}
+
+# Tworzenie folderów
+Create-Folder -Paths $backupDir, $summaryDir, $alertDirAll, $dashboardDir, $datasourceDir, $contactPointsDirAll, $notificationPolicyTreeDir, $muteTimingsDirAll, $templatesDir
+
+# Endpointy API
+$Endpoints = @{
+    "AlertRules"              = "$grafanaHost/api/v1/provisioning/alert-rules"
+    "AlertRulesExport"        = "$grafanaHost/api/v1/provisioning/alert-rules/export"
+    "ContactPoints"           = "$grafanaHost/api/v1/provisioning/contact-points"
+    "ContactPointsExport"     = "$grafanaHost/api/v1/provisioning/contact-points/export"
+    "NotificationPolicies"    = "$grafanaHost/api/v1/provisioning/policies"
+    "NotificationPoliciesExport" = "$grafanaHost/api/v1/provisioning/policies/export"
+    "MuteTimings"             = "$grafanaHost/api/v1/provisioning/mute-timings"
+    "MuteTimingsExport"       = "$grafanaHost/api/v1/provisioning/mute-timings/export"
+    "Templates"               = "$grafanaHost/api/v1/provisioning/templates"
+    "DashboardsSearch"        = "$grafanaHost/api/search?query="
+    "Datasources"             = "$grafanaHost/api/datasources"
+}
+
+# Pobieranie i zapisywanie danych
+Save-Data -Endpoint $Endpoints.AlertRules -FilePath "$alertDirAll\alert-rules.json"
+Save-Data -Endpoint $Endpoints.AlertRulesExport -FilePath "$alertDirAll\alert-rules-export.json"
+Save-Data -Endpoint $Endpoints.ContactPointsExport -FilePath "$contactPointsDirAll\contactPointsExport.yaml" -IsJson:$false
+Save-Data -Endpoint $Endpoints.ContactPoints -FilePath "$contactPointsDirAll\contactPointsExport.json"
+Save-Data -Endpoint $Endpoints.NotificationPoliciesExport -FilePath "$notificationPolicyTreeDir\notificationPolicyTreeExport.yaml" -IsJson:$false
+Save-Data -Endpoint $Endpoints.NotificationPolicies -FilePath "$notificationPolicyTreeDir\notificationPolicyTreeExport.json"
+Save-Data -Endpoint $Endpoints.MuteTimingsExport -FilePath "$muteTimingsDirAll\muteTimingsExport.yaml" -IsJson:$false
+Save-Data -Endpoint $Endpoints.MuteTimings -FilePath "$muteTimingsDirAll\muteTimingsExport.json"
+Save-Data -Endpoint $Endpoints.Templates -FilePath "$templatesDir\templatesExport.json"
+
+# Przetwarzanie dashboardów
+try {
+    $Dashboards = Invoke-RestMethod -Uri $Endpoints.DashboardsSearch -Headers $Headers -Method Get
+    foreach ($Dashboard in $Dashboards) {
+        $uid = $Dashboard.uid
+        $title = Sanitize-FileName -Name $Dashboard.title
+        try {
+            $Details = Invoke-RestMethod -Uri "$grafanaHost/api/dashboards/uid/$uid" -Headers $Headers -Method Get
+            $folder = Sanitize-FileName -Name $Details.meta.folderTitle
+            $folderPath = "$dashboardDir\$folder"
+            Create-Folder -Paths $folderPath
+            $Details.dashboard | ConvertTo-Json -Depth 100 | Out-File -FilePath "$folderPath\$title.json" -Encoding UTF8
+            Write-Host "Dashboard $title saved to $folderPath" -ForegroundColor Green
+        } catch {
+            Write-Host "Error fetching dashboard $title (UID: $uid)" -ForegroundColor Red
+            Write-Host $_.Exception.Message -ForegroundColor Red
+        }
+    }
+} catch {
+    Write-Host "Error fetching dashboards: $_" -ForegroundColor Red
+}
+
+# Podsumowanie
+Write-Host "Backup completed at $backupDir" -ForegroundColor Cyan
