@@ -3,6 +3,54 @@ import requests
 import json
 from datetime import datetime
 
+# Initialize parameters
+date = datetime.now().strftime("%d%m%y%H%M%S")
+env = "ENV"
+grafana_host = "URL"
+api_token = "TOKEN"
+
+headers = {
+    "Authorization": f"Bearer {api_token}",
+    "Content-Type": "application/json"
+}
+
+error_summary = {
+    "Alerts": {"errors": 0},
+    "Contact Points": {"errors": 0},
+    "Notification Policy": {"errors": 0},
+    "Mute Timmings": {"errors": 0},
+    "Templates": {"errors": 0},
+    "Datasources": {"errors": 0},
+    "Dashboards": {"errors": 0}
+}
+
+# All directories
+main_dir = os.path.dirname(os.path.abspath(__file__))
+env_dir = os.path.join(main_dir, f"Grafana_backup/{env}_{date}")
+summary_dir = os.path.join(env_dir, "Summary")
+alert_dir = os.path.join(env_dir, "grafana_alerts")
+alert_dir_all = os.path.join(env_dir, "grafana_alerts/all")
+dashboard_dir = os.path.join(env_dir, "grafana_dashboards")
+datasource_dir = os.path.join(env_dir, "grafana_datasource")
+contact_points_dir_all = os.path.join(env_dir, "grafana_contactPoints/All")
+notification_policy_tree_dir = os.path.join(env_dir, "grafana_notificationPolicyTree")
+mute_timings_dir_all = os.path.join(env_dir, "grafana_muteTimings/All")
+templates_dir = os.path.join(env_dir, "grafana_templates")
+
+# Define endpoints
+alert_endpoint = f"{grafana_host}/api/v1/provisioning/alert-rules"
+alert_export_endpoint = f"{grafana_host}/api/v1/provisioning/alert-rules/export"
+contact_points_endpoint = f"{grafana_host}/api/v1/provisioning/contact-points"
+contact_points_export_endpoint = f"{grafana_host}/api/v1/provisioning/contact-points/export"
+notification_policy_tree_endpoint = f"{grafana_host}/api/v1/provisioning/policies"
+notification_policy_tree_export_endpoint = f"{grafana_host}/api/v1/provisioning/policies/export"
+mute_timings_endpoint = f"{grafana_host}/api/v1/provisioning/mute-timings"
+mute_timings_export_endpoint = f"{grafana_host}/api/v1/provisioning/mute-timings/export"
+templates_endpoint = f"{grafana_host}/api/v1/provisioning/templates"
+dashboard_search_endpoint = f"{grafana_host}/api/search?query="
+dashboard_detail_endpoint = f"{grafana_host}/api/dashboards/uid"
+datasource_endpoint = f"{grafana_host}/api/datasources"
+
 # Define helper functions
 def create_directories(paths):
     for path in paths:
@@ -18,7 +66,7 @@ def sanitize_filename(name, max_lenght=255):
     return sanitazed[:max_lenght]
 
 
-def fetch_and_save(endpoint, filepath, is_json=True):
+def fetch_and_save(endpoint, filepath, error_counter, is_json=True):
     try:
         response = requests.get(endpoint, headers=headers)
         response.raise_for_status()
@@ -31,8 +79,9 @@ def fetch_and_save(endpoint, filepath, is_json=True):
         print(f"Data saved to {filepath}")
     except Exception as e:
         print(f"Error fetching data from {endpoint}: {e}")
+        error_counter["errors"] += 1
 
-def more_detailed_fetch_and_save(endpoint, endpoint_dir, uid_key, title_key, is_folder=False):
+def more_detailed_fetch_and_save(endpoint, endpoint_dir, uid_key, title_key, error_counter, is_folder=False):
     """
     Fetches data from an endpoint, creates a folder structure (if required), and saves detailed data to files.
 
@@ -79,37 +128,17 @@ def more_detailed_fetch_and_save(endpoint, endpoint_dir, uid_key, title_key, is_
 
             except requests.exceptions.RequestException as req_err:
                 print(f"Error fetching detailed data for {title_name} (UID: {identity}): {req_err}")
+                error_counter["errors"] += 1
             except Exception as e:
                 print(f"An unexpected error occurred while processing {title_name} (UID: {identity}): {e}")
+                error_counter["errors"] += 1
 
     except requests.exceptions.RequestException as req_err:
         print(f"Error fetching data from {endpoint}: {req_err}")
+        error_counter["errors"] += 1
     except Exception as e:
         print(f"An unexpected error occurred while fetching data from {endpoint}: {e}")
-
-# Initialize parameters
-date = datetime.now().strftime("%d%m%y%H%M%S")
-env = "ENV"
-grafana_host = "URL"
-api_token = "TOKEN"
-
-headers = {
-    "Authorization": f"Bearer {api_token}",
-    "Content-Type": "application/json"
-}
-
-# All directories
-main_dir = os.path.dirname(os.path.abspath(__file__))
-env_dir = os.path.join(main_dir, f"Grafana_backup/{env}_{date}")
-summary_dir = os.path.join(env_dir, "Summary")
-alert_dir = os.path.join(env_dir, "grafana_alerts")
-alert_dir_all = os.path.join(env_dir, "grafana_alerts/all")
-dashboard_dir = os.path.join(env_dir, "grafana_dashboards")
-datasource_dir = os.path.join(env_dir, "grafana_datasource")
-contact_points_dir_all = os.path.join(env_dir, "grafana_contactPoints/All")
-notification_policy_tree_dir = os.path.join(env_dir, "grafana_notificationPolicyTree")
-mute_timings_dir_all = os.path.join(env_dir, "grafana_muteTimings/All")
-templates_dir = os.path.join(env_dir, "grafana_templates")
+        error_counter["errors"] += 1
 
 # Create backup directory structure
 create_directories([
@@ -124,44 +153,72 @@ create_directories([
     templates_dir
 ])
 
-# Define endpoints
-alert_endpoint = f"{grafana_host}/api/v1/provisioning/alert-rules"
-alert_export_endpoint = f"{grafana_host}/api/v1/provisioning/alert-rules/export"
-contact_points_endpoint = f"{grafana_host}/api/v1/provisioning/contact-points"
-contact_points_export_endpoint = f"{grafana_host}/api/v1/provisioning/contact-points/export"
-notification_policy_tree_endpoint = f"{grafana_host}/api/v1/provisioning/policies"
-notification_policy_tree_export_endpoint = f"{grafana_host}/api/v1/provisioning/policies/export"
-mute_timings_endpoint = f"{grafana_host}/api/v1/provisioning/mute-timings"
-mute_timings_export_endpoint = f"{grafana_host}/api/v1/provisioning/mute-timings/export"
-templates_endpoint = f"{grafana_host}/api/v1/provisioning/templates"
-dashboard_search_endpoint = f"{grafana_host}/api/search?query="
-dashboard_detail_endpoint = f"{grafana_host}/api/dashboards/uid"
-datasource_endpoint = f"{grafana_host}/api/datasources"
-
 # Fetch and save alerts
-fetch_and_save(alert_endpoint, os.path.join(alert_dir_all, "alert-rules.json"))
-fetch_and_save(alert_export_endpoint, os.path.join(alert_dir_all, "alert-rules-export.json"))
+fetch_and_save(
+    alert_endpoint, 
+    os.path.join(alert_dir_all, "alert-rules.json"),
+    error_counter=error_summary["Alerts"]
+)
+fetch_and_save(
+    alert_export_endpoint, 
+    os.path.join(alert_dir_all, "alert-rules-export.json"),
+    error_counter=error_summary["Alerts"]
+)
 more_detailed_fetch_and_save(
     endpoint=alert_endpoint, 
     endpoint_dir=alert_dir, 
     uid_key="uid", 
-    title_key="title"
+    title_key="title",
+    error_counter=error_summary["Alerts"]
 )
 
 # Fetch and save contact points
-fetch_and_save(contact_points_export_endpoint, os.path.join(contact_points_dir_all, "contactPointsExport.yaml"), is_json=False)
-fetch_and_save(contact_points_endpoint, os.path.join(contact_points_dir_all, "contactPointsExport.json"))
+fetch_and_save(
+    contact_points_export_endpoint, 
+    os.path.join(contact_points_dir_all, "contactPointsExport.yml"), 
+    error_counter=error_summary["Contact Points"], 
+    is_json=False
+)
+
+fetch_and_save(
+    contact_points_endpoint, 
+    os.path.join(contact_points_dir_all, "contactPointsExport.json"),
+    error_counter=error_summary["Contact Points"]
+)
 
 # Fetch and save notification policy tree
-fetch_and_save(notification_policy_tree_export_endpoint, os.path.join(notification_policy_tree_dir, "notificationPolicyTreeExport.yaml"), is_json=False)
-fetch_and_save(notification_policy_tree_endpoint, os.path.join(notification_policy_tree_dir, "notificationPolicyTreeExport.json"))
+fetch_and_save(
+    notification_policy_tree_export_endpoint, 
+    os.path.join(notification_policy_tree_dir, "notificationPolicyTreeExport.yml"), 
+    error_counter=error_summary["Notification Policy"], 
+    is_json=False
+)
+fetch_and_save(
+    notification_policy_tree_endpoint, 
+    os.path.join(notification_policy_tree_dir, "notificationPolicyTreeExport.json"),
+    error_counter=error_summary["Notification Policy"]
+)
 
 # Fetch and save mute timings
-fetch_and_save(mute_timings_export_endpoint, os.path.join(mute_timings_dir_all, "muteTimingsExport.yaml"), is_json=False)
-fetch_and_save(mute_timings_endpoint, os.path.join(mute_timings_dir_all, "muteTimingsExport.json"))
+fetch_and_save(
+    mute_timings_export_endpoint, 
+    os.path.join(mute_timings_dir_all, "muteTimingsExport.yml"), 
+    error_counter=error_summary["Mute Timmings"],
+    is_json=False
+)
+fetch_and_save(
+    mute_timings_endpoint, 
+    os.path.join(mute_timings_dir_all, "muteTimingsExport.json"),
+    error_counter=error_summary["Mute Timmings"]
+
+)
 
 # Fetch and save templates
-fetch_and_save(templates_endpoint, os.path.join(templates_dir, "templatesExport.json"))
+fetch_and_save(
+    templates_endpoint, 
+    os.path.join(templates_dir, "templatesExport.json"),
+    error_counter=error_summary["Templates"]
+)
 
 # Fetch and process dashboards
 more_detailed_fetch_and_save(
@@ -169,11 +226,17 @@ more_detailed_fetch_and_save(
     endpoint_dir=dashboard_dir,
     uid_key="uid",
     title_key="title",
+    error_counter=error_summary["Dashboards"],
     is_folder=True
 )
 
 # Fetch and save datasources
-fetch_and_save(datasource_endpoint, os.path.join(summary_dir, "datasources.csv"), is_json=False)
+fetch_and_save(
+    datasource_endpoint, 
+    os.path.join(summary_dir, "datasources.csv"), 
+    error_counter=error_summary["Datasources"],
+    is_json=False
+)
 
 # Fetch and save individual datasources
 more_detailed_fetch_and_save(
@@ -181,8 +244,11 @@ more_detailed_fetch_and_save(
     endpoint_dir=datasource_dir,
     uid_key="id",
     title_key="name",
+    error_counter=error_summary["Datasources"],
     is_folder=False
 )
 
 # Summary
-print("Backup Summary")
+print("\nBackup Summary:")
+for section, stats in error_summary.items():
+    print(f"{section} errors: {stats['errors']}")
